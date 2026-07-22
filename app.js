@@ -17,7 +17,7 @@ const FN = {
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "loginView","keyInput","rememberKey","keyBtn","loginMsg",
+  "loginView","userInput","passInput","rememberKey","keyBtn","loginMsg",
   "appView","usageChip","menuBtn","drawer","drawerBg","drawerCustomer","drawerKey","drawerUsage",
   "changeKeyBtn","logoutBtn","manualMode","manualBox","firmwareFile","flashAddr",
   "unsupported","productSelect","productHint","connectBtn","deviceInfo","chipName","macAddr",
@@ -58,8 +58,8 @@ async function api(url, body) {
 function init() {
   if (!("serial" in navigator)) el.unsupported.classList.remove("hidden");
 
-  el.keyBtn.addEventListener("click", () => submitKey());
-  el.keyInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitKey(); });
+  el.keyBtn.addEventListener("click", () => login());
+  el.passInput.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
   el.menuBtn.addEventListener("click", () => toggleDrawer(true));
   el.drawerBg.addEventListener("click", () => toggleDrawer(false));
   el.changeKeyBtn.addEventListener("click", logout);
@@ -72,44 +72,45 @@ function init() {
   el.flashAnotherBtn.addEventListener("click", flashAnother);
   el.reqBtn.addEventListener("click", sendRequest);
 
-  // remembered login?
+  // remembered login? (we store the internal key after a successful login)
   const saved = localStorage.getItem(KEY_STORE) || sessionStorage.getItem(KEY_STORE);
-  if (saved && backendReady()) {
-    el.keyInput.value = saved;
-    submitKey(true);
-  }
+  if (saved && backendReady()) loginWith({ license_key: saved }, true);
 }
 
-// ---- login ----
-async function submitKey(silent) {
-  const key = el.keyInput.value.trim();
-  if (!key) { el.loginMsg.textContent = "Enter your access key."; el.loginMsg.className = "msg err"; return; }
+// ---- login with User ID + Password ----
+async function login() {
+  const username = el.userInput.value.trim();
+  const password = el.passInput.value;
+  if (!username || !password) { el.loginMsg.textContent = "Enter your User ID and password."; el.loginMsg.className = "msg err"; return; }
   if (!backendReady()) { el.loginMsg.textContent = "Service not configured."; el.loginMsg.className = "msg err"; return; }
+  el.loginMsg.textContent = "Signing in…"; el.loginMsg.className = "msg";
+  loginWith({ username, password }, false);
+}
 
-  if (!silent) { el.loginMsg.textContent = "Checking…"; el.loginMsg.className = "msg"; }
+// creds = {username,password} for a fresh login, or {license_key} for a remembered session
+async function loginWith(creds, silent) {
   try {
-    const res = await api(FN.myproducts(), { license_key: key });
+    const res = await api(FN.myproducts(), creds);
     if (res.error) {
-      el.loginMsg.textContent = res.error; el.loginMsg.className = "msg err";
+      if (!silent) { el.loginMsg.textContent = res.error; el.loginMsg.className = "msg err"; }
       localStorage.removeItem(KEY_STORE); sessionStorage.removeItem(KEY_STORE);
       return;
     }
-    licenseKey = key;
-    // remember
-    if (el.rememberKey.checked) localStorage.setItem(KEY_STORE, key);
-    else sessionStorage.setItem(KEY_STORE, key);
+    licenseKey = res.key;               // internal key used for flashing calls
+    if (el.rememberKey.checked) localStorage.setItem(KEY_STORE, res.key);
+    else sessionStorage.setItem(KEY_STORE, res.key);
 
     applyLicense(res);
     el.loginView.classList.add("hidden");
     el.appView.classList.remove("hidden");
   } catch (e) {
-    el.loginMsg.textContent = "Could not reach the server."; el.loginMsg.className = "msg err";
+    if (!silent) { el.loginMsg.textContent = "Could not reach the server."; el.loginMsg.className = "msg err"; }
   }
 }
 
 function applyLicense(res) {
   products = res.products || [];
-  usage = { used: res.used ?? 0, max: res.max ?? 0, name: res.customer_name || "" };
+  usage = { used: res.used ?? 0, max: res.max ?? 0, name: res.customer_name || "", username: res.username || "" };
   el.productSelect.innerHTML = '<option value="">— choose your device —</option>';
   el.reqProduct.innerHTML = "";
   products.forEach((p) => {
@@ -124,7 +125,7 @@ function applyLicense(res) {
 function refreshUsageUI() {
   el.usageChip.textContent = `${usage.used}/${fmtMax(usage.max)} devices`;
   el.drawerCustomer.textContent = usage.name ? `Signed in as ${usage.name}` : "Signed in";
-  el.drawerKey.textContent = licenseKey || "—";
+  el.drawerKey.textContent = usage.username || "—";
   el.drawerUsage.textContent = `${usage.used}/${fmtMax(usage.max)}`;
 }
 
@@ -135,7 +136,7 @@ function logout() {
   toggleDrawer(false);
   el.appView.classList.add("hidden");
   el.loginView.classList.remove("hidden");
-  el.keyInput.value = ""; el.loginMsg.textContent = "";
+  el.passInput.value = ""; el.loginMsg.textContent = "";
 }
 
 function toggleDrawer(open) {

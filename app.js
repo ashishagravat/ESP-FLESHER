@@ -21,8 +21,8 @@ const el = {};
   "appView","usageChip","menuBtn","drawer","drawerBg","drawerCustomer","drawerKey","drawerUsage",
   "changeKeyBtn","logoutBtn","manualMode","manualBox","firmwareFile","flashAddr",
   "unsupported","productSelect","productHint","connectBtn","deviceInfo","chipName","macAddr",
-  "disconnectBtn","flashBtn","progressWrap","progRing","progPct","progressBar","flashStatus",
-  "flashStatusIdle","successPanel","successInfo","flashAnotherBtn",
+  "disconnectBtn","flashBtn","progressWrap","progPct","progressBar","flashStatus",
+  "flashStatusIdle","clearLog",
   "reqProduct","reqCount","reqBtn","reqHint","log",
 ].forEach((id) => (el[id] = $(id)));
 
@@ -38,7 +38,7 @@ const espTerminal = {
   write(d) { el.log.textContent += d; el.log.scrollTop = el.log.scrollHeight; },
 };
 function logLine(m) { el.log.textContent += m + "\n"; el.log.scrollTop = el.log.scrollHeight; }
-function status(m, k) { el.flashStatusIdle.textContent = m; el.flashStatusIdle.className = "fstatus" + (k ? " " + k : ""); }
+function status(m, k) { el.flashStatusIdle.textContent = m; el.flashStatusIdle.className = "dock-status" + (k ? " " + k : ""); }
 
 // ---- API ----
 async function api(url, body) {
@@ -69,7 +69,7 @@ function init() {
   el.connectBtn.addEventListener("click", connect);
   el.disconnectBtn.addEventListener("click", forgetPort);
   el.flashBtn.addEventListener("click", flash);
-  el.flashAnotherBtn.addEventListener("click", flashAnother);
+  el.clearLog.addEventListener("click", () => (el.log.textContent = ""));
   el.reqBtn.addEventListener("click", sendRequest);
 
   // remembered login? (we store the internal key after a successful login)
@@ -160,9 +160,11 @@ function onManualToggle() {
 async function connect() {
   try {
     grantedPort = await navigator.serial.requestPort();
-    el.connectBtn.textContent = "✓ Port ready — click to change port";
+    el.connectBtn.textContent = "✓ Port ready";
     el.connectBtn.classList.add("ok-btn");
-    status("Port ready. Load a PCB and press Flash. Then swap PCBs and press Flash again.", "ok");
+    el.disconnectBtn.classList.remove("hidden");
+    status("Port ready. Pick a device and press Flash. Swap PCBs and press Flash for each.", "ok");
+    logLine("> Port selected. Ready to flash.");
     updateFlashBtn();
   } catch (err) {
     status("No port selected.", "err");
@@ -172,8 +174,9 @@ async function connect() {
 // forget the chosen port (so a different port can be picked)
 function forgetPort() {
   grantedPort = null;
-  el.connectBtn.textContent = "🔌 Connect device";
+  el.connectBtn.textContent = "🔌 Connect";
   el.connectBtn.classList.remove("ok-btn");
+  el.disconnectBtn.classList.add("hidden");
   el.deviceInfo.classList.add("hidden");
   status("Port disconnected. Press Connect to choose a port.");
   updateFlashBtn();
@@ -186,11 +189,10 @@ async function flash() {
   if (!el.manualMode.checked && !productId) { status("Select your device first.", "err"); return; }
 
   el.flashBtn.disabled = true;
-  el.successPanel.classList.add("hidden");
   el.progressWrap.classList.remove("hidden");
   setProgress(0);
   el.flashStatus.textContent = "Connecting to board…";
-  el.flashStatus.className = "fstatus";
+  el.flashStatus.className = "dock-status";
   status("");
 
   // fresh loader on the SAME port for each board
@@ -225,7 +227,7 @@ async function flash() {
   } catch (err) {
     errMsg = err.message; logLine("ERROR: " + err.message);
     el.flashStatus.textContent = "Flash failed: " + errMsg;
-    el.flashStatus.className = "fstatus err";
+    el.flashStatus.className = "dock-status err";
   } finally {
     try { await transport.disconnect(); } catch (_) {}  // release the port for the next PCB
   }
@@ -249,22 +251,11 @@ async function flash() {
 
 function showSuccess(r) {
   el.progressWrap.classList.add("hidden");
-  const line = r
-    ? `MAC ${deviceMac} · Devices used ${r.used}/${fmtMax(r.max)}` +
-      (r.counted ? "" : " (re-flash, not counted)")
-    : `MAC ${deviceMac}`;
-  el.successInfo.textContent = line;
-  el.successPanel.classList.remove("hidden");
-  el.successPanel.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-// ---- ready for next PCB (port stays the same) ----
-function flashAnother() {
-  el.successPanel.classList.add("hidden");
-  el.progressWrap.classList.add("hidden");
-  setProgress(0);
-  status("Swap in the next PCB and press Flash.", "ok");
-  el.flashBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.flashStatus.textContent = "";
+  const info = r ? `devices used ${r.used}/${fmtMax(r.max)}${r.counted ? "" : " (re-flash)"}` : "";
+  logLine(`✅ SUCCESS   ${deviceChip}   MAC ${deviceMac}   ${info}`);
+  logLine("> Swap in the next PCB and press Flash.\n");
+  status(`✅ Flashed ${deviceMac} — ${info}. Swap PCB and press Flash for the next one.`, "ok");
 }
 
 // ---- firmware sources ----
@@ -302,7 +293,6 @@ async function sendRequest() {
 function setProgress(pct) {
   el.progPct.textContent = pct + "%";
   el.progressBar.style.width = pct + "%";
-  el.progRing.style.background = `conic-gradient(var(--accent) ${pct}%, var(--card-2) 0)`;
 }
 function updateFlashBtn() {
   const haveTarget = el.manualMode.checked || !!el.productSelect.value;

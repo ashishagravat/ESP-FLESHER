@@ -16,11 +16,12 @@
         <h1>Device Programmer</h1>
         <p class="sub">Enter your access key to begin</p>
       </div>
-      <input id="keyInput" class="big-input" placeholder="Enter your access key" autocomplete="off" />
+      <input id="userInput" class="big-input" placeholder="User ID" autocomplete="username" />
+      <input id="passInput" class="big-input" type="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px" />
       <label class="remember">
         <input type="checkbox" id="rememberKey" checked /> Remember me on this computer
       </label>
-      <button id="keyBtn" class="btn-lg primary block">Continue →</button>
+      <button id="keyBtn" class="btn-lg primary block">Log in →</button>
       <p class="msg" id="loginMsg"></p>
     </div>
     <p class="foot-note">Works on desktop Google Chrome or Microsoft Edge.</p>
@@ -41,9 +42,9 @@
     <aside id="drawer" class="drawer hidden">
       <h3>Account</h3>
       <p class="muted" id="drawerCustomer"></p>
-      <div class="drawer-row"><span>Access key</span><code id="drawerKey"></code></div>
+      <div class="drawer-row"><span>User ID</span><code id="drawerKey"></code></div>
       <div class="drawer-row"><span>Devices used</span><b id="drawerUsage">—</b></div>
-      <button class="btn ghost block" id="changeKeyBtn">Change access key</button>
+      <button class="btn ghost block" id="changeKeyBtn">Switch account</button>
       <button class="btn ghost block" id="logoutBtn">Log out</button>
       <hr />
       <label class="mini-toggle">

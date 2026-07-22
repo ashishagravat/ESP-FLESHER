@@ -1,335 +1,311 @@
-// Admin dashboard — talks only to the password-protected `admin` Edge Function.
-import { CONFIG } from "./config.js";
+// ESP Wireless Programmer — customer app
+// Web Serial + esptool-js flashing. Private firmware via Supabase. Remembered login.
+import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.7/bundle.js";
+import { CONFIG, backendReady } from "./config.js";
 
-const ADMIN_FN = `${CONFIG.SUPABASE_URL}/functions/v1/admin`;
-const CHIPS = ["esp32", "esp32s3", "esp32c3", "esp32s2", "esp8266"];
-const UNLIMITED = 1000000000; // sentinel: max_flashes >= this means "unlimited"
+const UNLIMITED = 1000000000;
 const fmtMax = (m) => (m >= UNLIMITED ? "∞" : m);
-const $ = (id) => document.getElementById(id);
+const KEY_STORE = "esp_license_key";
 
-let pass = sessionStorage.getItem("adminPass") || "";
-let products = [];
-let firmwares = [];   // for the currently selected product in Firmware tab
+const FN = {
+  myproducts: () => `${CONFIG.SUPABASE_URL}/functions/v1/my-products`,
+  prepare:    () => `${CONFIG.SUPABASE_URL}/functions/v1/prepare-flash`,
+  report:     () => `${CONFIG.SUPABASE_URL}/functions/v1/report-flash`,
+  request:    () => `${CONFIG.SUPABASE_URL}/functions/v1/request-flashes`,
+};
+
+const $ = (id) => document.getElementById(id);
+const el = {};
+[
+  "loginView","userInput","passInput","rememberKey","keyBtn","loginMsg",
+  "appView","usageChip","menuBtn","drawer","drawerBg","drawerCustomer","drawerKey","drawerUsage",
+  "changeKeyBtn","logoutBtn","manualMode","manualBox","firmwareFile","flashAddr",
+  "unsupported","productSelect","productHint","connectBtn","deviceInfo","chipName","macAddr",
+  "disconnectBtn","flashBtn","progressWrap","progRing","progPct","progressBar","flashStatus",
+  "flashStatusIdle","successPanel","successInfo","flashAnotherBtn",
+  "reqProduct","reqCount","reqBtn","reqHint","log",
+].forEach((id) => (el[id] = $(id)));
+
+// ---- state ----
+let transport = null, esploader = null;
+let deviceMac = null, deviceChip = null;
+let licenseKey = null, products = [], usage = { used: 0, max: 0, name: "" };
+
+// ---- esptool terminal ----
+const espTerminal = {
+  clean() { el.log.textContent = ""; },
+  writeLine(d) { logLine(d); },
+  write(d) { el.log.textContent += d; el.log.scrollTop = el.log.scrollHeight; },
+};
+function logLine(m) { el.log.textContent += m + "\n"; el.log.scrollTop = el.log.scrollHeight; }
+function status(m, k) { el.flashStatusIdle.textContent = m; el.flashStatusIdle.className = "fstatus" + (k ? " " + k : ""); }
 
 // ---- API ----
-async function call(action, data = {}) {
-  const res = await fetch(ADMIN_FN, {
+async function api(url, body) {
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "apikey": CONFIG.SUPABASE_ANON_KEY,
       "Authorization": "Bearer " + CONFIG.SUPABASE_ANON_KEY,
     },
-    body: JSON.stringify({ admin_password: pass, action, data }),
+    body: JSON.stringify(body),
   });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
-  return body;
+  return res.json();
 }
 
-// ---- Login ----
-$("loginBtn").addEventListener("click", login);
-$("adminPass").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+// ---- init ----
+function init() {
+  if (!("serial" in navigator)) el.unsupported.classList.remove("hidden");
+
+  el.keyBtn.addEventListener("click", () => login());
+  el.passInput.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+  el.menuBtn.addEventListener("click", () => toggleDrawer(true));
+  el.drawerBg.addEventListener("click", () => toggleDrawer(false));
+  el.changeKeyBtn.addEventListener("click", logout);
+  el.logoutBtn.addEventListener("click", logout);
+  el.manualMode.addEventListener("change", onManualToggle);
+  el.productSelect.addEventListener("change", onProductChange);
+  el.connectBtn.addEventListener("click", connect);
+  el.disconnectBtn.addEventListener("click", () => cleanup().then(() => status("Disconnected.")));
+  el.flashBtn.addEventListener("click", flash);
+  el.flashAnotherBtn.addEventListener("click", flashAnother);
+  el.reqBtn.addEventListener("click", sendRequest);
+
+  // remembered login? (we store the internal key after a successful login)
+  const saved = localStorage.getItem(KEY_STORE) || sessionStorage.getItem(KEY_STORE);
+  if (saved && backendReady()) loginWith({ license_key: saved }, true);
+}
+
+// ---- login with User ID + Password ----
 async function login() {
-  pass = $("adminPass").value;
-  $("loginHint").textContent = "Checking…";
+  const username = el.userInput.value.trim();
+  const password = el.passInput.value;
+  if (!username || !password) { el.loginMsg.textContent = "Enter your User ID and password."; el.loginMsg.className = "msg err"; return; }
+  if (!backendReady()) { el.loginMsg.textContent = "Service not configured."; el.loginMsg.className = "msg err"; return; }
+  el.loginMsg.textContent = "Signing in…"; el.loginMsg.className = "msg";
+  loginWith({ username, password }, false);
+}
+
+// creds = {username,password} for a fresh login, or {license_key} for a remembered session
+async function loginWith(creds, silent) {
   try {
-    await call("verify");
-    sessionStorage.setItem("adminPass", pass);
-    $("loginView").classList.add("hidden");
-    $("dashView").classList.remove("hidden");
-    openTab("products");
-    refreshReqBadge();
+    const res = await api(FN.myproducts(), creds);
+    if (res.error) {
+      if (!silent) { el.loginMsg.textContent = res.error; el.loginMsg.className = "msg err"; }
+      localStorage.removeItem(KEY_STORE); sessionStorage.removeItem(KEY_STORE);
+      return;
+    }
+    licenseKey = res.key;               // internal key used for flashing calls
+    if (el.rememberKey.checked) localStorage.setItem(KEY_STORE, res.key);
+    else sessionStorage.setItem(KEY_STORE, res.key);
+
+    applyLicense(res);
+    el.loginView.classList.add("hidden");
+    el.appView.classList.remove("hidden");
   } catch (e) {
-    $("loginHint").textContent = e.message;
-    $("loginHint").className = "hint err";
+    if (!silent) { el.loginMsg.textContent = "Could not reach the server."; el.loginMsg.className = "msg err"; }
   }
 }
-$("logoutBtn").addEventListener("click", () => {
-  sessionStorage.removeItem("adminPass"); pass = "";
-  $("dashView").classList.add("hidden");
-  $("loginView").classList.remove("hidden");
-  $("adminPass").value = ""; $("loginHint").textContent = "";
-});
 
-// If a password is already stored, auto-enter.
-if (pass) call("verify").then(() => {
-  $("loginView").classList.add("hidden");
-  $("dashView").classList.remove("hidden");
-  openTab("products");
-}).catch(() => sessionStorage.removeItem("adminPass"));
-
-// ---- Tabs ----
-document.querySelectorAll(".tab").forEach((t) =>
-  t.addEventListener("click", () => openTab(t.dataset.tab)));
-function openTab(name) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-  document.querySelectorAll(".tabpane").forEach((p) => p.classList.add("hidden"));
-  $("tab-" + name).classList.remove("hidden");
-  if (name === "products") loadProducts();
-  if (name === "firmware") loadFirmwareTab();
-  if (name === "licenses") loadLicenses();
-  if (name === "requests") loadRequests();
-  if (name === "logs") loadLogs();
-}
-
-// ---- Products ----
-async function loadProducts() {
-  const [{ products: p }, fwByProduct] = [await call("products.list"), {}];
-  products = p;
-  // fetch current firmware per product for the table
-  const rows = await Promise.all(products.map(async (prod) => {
-    const { firmwares } = await call("firmwares.list", { product_id: prod.id });
-    const cur = firmwares.find((f) => f.is_current);
-    return { prod, cur };
-  }));
-  $("productRows").innerHTML = rows.map(({ prod, cur }) => `
-    <tr>
-      <td>${esc(prod.name)}</td>
-      <td><code>${prod.chip}</code></td>
-      <td>${cur ? esc(cur.version) : '<span class="hint">— none —</span>'}</td>
-      <td>${statusPill(prod.enabled)}</td>
-      <td><div class="row-actions">
-        <button class="icon-btn" data-edit="${prod.id}">Edit</button>
-        <button class="icon-btn danger" data-del="${prod.id}">Delete</button>
-      </div></td>
-    </tr>`).join("") || emptyRow(5);
-  $("productRows").querySelectorAll("[data-edit]").forEach((b) =>
-    b.onclick = () => editProduct(products.find((x) => x.id === b.dataset.edit)));
-  $("productRows").querySelectorAll("[data-del]").forEach((b) =>
-    b.onclick = async () => { if (confirm("Delete this product?")) { await call("products.delete", { id: b.dataset.del }); loadProducts(); } });
-}
-$("addProductBtn").onclick = () => editProduct(null);
-
-function editProduct(p) {
-  modal(p ? "Edit product" : "Add product", `
-    <div class="field"><label>Name</label><input id="m_name" value="${esc(p?.name ?? "")}"></div>
-    <div class="field"><label>Chip</label><select id="m_chip">${CHIPS.map((c) =>
-      `<option ${p?.chip === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
-    <div class="field"><label>Description</label><input id="m_desc" value="${esc(p?.description ?? "")}"></div>
-    <div class="field"><label class="check"><input type="checkbox" id="m_en" ${p?.enabled !== false ? "checked" : ""}> Enabled</label></div>
-  `, async () => {
-    const data = { id: p?.id, name: $("m_name").value.trim(), chip: $("m_chip").value,
-      description: $("m_desc").value.trim(), enabled: $("m_en").checked };
-    if (!data.name) throw new Error("Name required.");
-    await call(p ? "products.update" : "products.create", data);
-    loadProducts();
+function applyLicense(res) {
+  products = res.products || [];
+  usage = { used: res.used ?? 0, max: res.max ?? 0, name: res.customer_name || "", username: res.username || "" };
+  el.productSelect.innerHTML = '<option value="">— choose your device —</option>';
+  el.reqProduct.innerHTML = "";
+  products.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.id; o.textContent = `${p.name}  (${p.chip})`;
+    el.productSelect.appendChild(o);
+    el.reqProduct.appendChild(o.cloneNode(true));
   });
+  refreshUsageUI();
 }
 
-// ---- Firmware ----
-async function loadFirmwareTab() {
-  const { products: p } = await call("products.list");
-  products = p;
-  const sel = $("fwProduct");
-  sel.innerHTML = products.map((x) => `<option value="${x.id}">${esc(x.name)} (${x.chip})</option>`).join("");
-  sel.onchange = loadFirmwareRows;
-  if (products.length) loadFirmwareRows();
-  else $("fwRows").innerHTML = emptyRow(5, "Add a product first.");
+function refreshUsageUI() {
+  el.usageChip.textContent = `${usage.used}/${fmtMax(usage.max)} devices`;
+  el.drawerCustomer.textContent = usage.name ? `Signed in as ${usage.name}` : "Signed in";
+  el.drawerKey.textContent = usage.username || "—";
+  el.drawerUsage.textContent = `${usage.used}/${fmtMax(usage.max)}`;
 }
-async function loadFirmwareRows() {
-  const productId = $("fwProduct").value;
-  const { firmwares: fws } = await call("firmwares.list", { product_id: productId });
-  firmwares = fws;
-  $("fwRows").innerHTML = fws.map((f) => `
-    <tr>
-      <td>${esc(f.version)}</td>
-      <td><code>0x${(f.flash_address).toString(16)}</code></td>
-      <td><code>${esc(f.storage_path)}</code></td>
-      <td>${f.is_current ? '<span class="pill on">current</span>' :
-        `<button class="icon-btn" data-cur="${f.id}">make current</button>`}</td>
-      <td><div class="row-actions">
-        <button class="icon-btn danger" data-del="${f.id}">Delete</button>
-      </div></td>
-    </tr>`).join("") || emptyRow(5, "No firmware yet.");
-  $("fwRows").querySelectorAll("[data-cur]").forEach((b) =>
-    b.onclick = async () => { await call("firmwares.setCurrent", { id: b.dataset.cur, product_id: productId }); loadFirmwareRows(); });
-  $("fwRows").querySelectorAll("[data-del]").forEach((b) =>
-    b.onclick = async () => { if (confirm("Delete this firmware?")) { await call("firmwares.delete", { id: b.dataset.del }); loadFirmwareRows(); } });
+
+function logout() {
+  localStorage.removeItem(KEY_STORE); sessionStorage.removeItem(KEY_STORE);
+  licenseKey = null;
+  cleanup();
+  toggleDrawer(false);
+  el.appView.classList.add("hidden");
+  el.loginView.classList.remove("hidden");
+  el.passInput.value = ""; el.loginMsg.textContent = "";
 }
-$("addFwBtn").onclick = () => uploadFirmware();
 
-function uploadFirmware() {
-  const productId = $("fwProduct").value;
-  const prod = products.find((x) => x.id === productId);
-  if (!prod) { alert("Add a product first."); return; }
-  modal("Upload firmware — " + prod.name, `
-    <div class="field"><label>Version</label><input id="m_ver" placeholder="1.0.0"></div>
-    <div class="field"><label>Flash address (hex)</label><input id="m_addr" value="0x0"></div>
-    <div class="field"><label>.bin file</label><input type="file" id="m_file" accept=".bin"></div>
-    <div class="field"><label class="check"><input type="checkbox" id="m_cur" checked> Make this the current version</label></div>
-  `, async () => {
-    const ver = $("m_ver").value.trim();
-    const file = $("m_file").files[0];
-    if (!ver) throw new Error("Version required.");
-    if (!file) throw new Error("Pick a .bin file.");
-    const addr = parseInt($("m_addr").value, 16) || 0;
-    const path = `${slug(prod.name)}/${ver}.bin`;
+function toggleDrawer(open) {
+  el.drawer.classList.toggle("hidden", !open);
+  el.drawerBg.classList.toggle("hidden", !open);
+}
 
-    // 1. get a signed upload URL, 2. PUT the file straight to private storage
-    const up = await call("firmwares.uploadUrl", { path });
-    const put = await fetch(up.url, {
-      method: "PUT",
-      headers: { "content-type": "application/octet-stream" },
-      body: file,
+// ---- product / manual ----
+function onProductChange() {
+  const p = products.find((x) => x.id === el.productSelect.value);
+  el.productHint.textContent = p ? `${p.chip}${p.description ? " · " + p.description : ""}` : "";
+  updateFlashBtn();
+}
+function onManualToggle() {
+  el.manualBox.classList.toggle("hidden", !el.manualMode.checked);
+  el.productSelect.disabled = el.manualMode.checked;
+  updateFlashBtn();
+}
+
+// ---- connect (reads MAC) ----
+async function connect() {
+  try {
+    status("Requesting serial port…");
+    const port = await navigator.serial.requestPort();
+    transport = new Transport(port, true);
+    esploader = new ESPLoader({ transport, baudrate: 921600, terminal: espTerminal });
+    status("Connecting to chip…");
+    deviceChip = await esploader.main();
+    deviceMac = await esploader.chip.readMac(esploader);
+    el.chipName.textContent = deviceChip;
+    el.macAddr.textContent = deviceMac;
+    el.deviceInfo.classList.remove("hidden");
+    el.connectBtn.classList.add("hidden");
+    status("Connected. Ready to flash.", "ok");
+    updateFlashBtn();
+  } catch (err) {
+    status("Connect failed: " + err.message, "err");
+    logLine("ERROR: " + err.message);
+    await cleanup();
+  }
+}
+
+async function cleanup() {
+  try { if (transport) await transport.disconnect(); } catch (_) {}
+  transport = null; esploader = null; deviceMac = null; deviceChip = null;
+  el.deviceInfo.classList.add("hidden");
+  el.connectBtn.classList.remove("hidden");
+  updateFlashBtn();
+}
+
+// ---- flash ----
+async function flash() {
+  if (!esploader) { status("Connect a device first.", "err"); return; }
+  let fileData, address, firmwareId = null, productId = null;
+  try {
+    if (el.manualMode.checked) ({ fileData, address } = await getManualFirmware());
+    else ({ fileData, address, firmwareId, productId } = await getBackendFirmware());
+  } catch (err) { status(err.message, "err"); return; }
+
+  el.flashBtn.disabled = true;
+  el.successPanel.classList.add("hidden");
+  el.progressWrap.classList.remove("hidden");
+  setProgress(0);
+  el.flashStatus.textContent = "Flashing… do not unplug.";
+  el.flashStatus.className = "fstatus";
+  status("");
+
+  let ok = false, errMsg = null;
+  try {
+    await esploader.writeFlash({
+      fileArray: [{ data: fileData, address }],
+      flashSize: "keep", flashMode: "keep", flashFreq: "keep",
+      eraseAll: false, compress: true,
+      reportProgress: (i, written, total) => setProgress(Math.round((written / total) * 100)),
     });
-    if (!put.ok) throw new Error("Upload failed (" + put.status + ").");
+    await esploader.after();
+    ok = true; setProgress(100);
+  } catch (err) {
+    errMsg = err.message; logLine("ERROR: " + err.message);
+    el.flashStatus.textContent = "Flash failed: " + errMsg;
+    el.flashStatus.className = "fstatus err";
+  }
 
-    // 3. record the firmware row
-    await call("firmwares.create", {
-      product_id: productId, version: ver, storage_path: up.path || path,
-      flash_address: addr, is_current: $("m_cur").checked,
-    });
-    loadFirmwareRows();
-  });
-}
+  // report + count
+  if (!el.manualMode.checked && licenseKey) {
+    try {
+      const r = await api(FN.report(), {
+        license_key: licenseKey, product_id: productId, firmware_id: firmwareId,
+        chip_mac: deviceMac, status: ok ? "success" : "fail", error: errMsg,
+      });
+      if (r.used != null) { usage.used = r.used; usage.max = r.max; refreshUsageUI(); }
+      if (ok) showSuccess(r);
+    } catch (_) { if (ok) showSuccess(null); }
+  } else if (ok) {
+    showSuccess(null);
+  }
 
-// ---- Licenses ----
-async function loadLicenses() {
-  const [{ licenses }, { products: p }] = [await call("licenses.list"), await call("products.list")];
-  products = p;
-  const nameOf = (id) => (products.find((x) => x.id === id)?.name) ?? "?";
-  $("licRows").innerHTML = licenses.map((l) => `
-    <tr>
-      <td><code>${esc(l.key)}</code></td>
-      <td>${esc(l.customer_name ?? "")}</td>
-      <td>${l.used}/${fmtMax(l.max_flashes)}</td>
-      <td>${l.product_ids.map((id) => esc(nameOf(id))).join(", ") || '<span class="hint">none</span>'}</td>
-      <td>${statusPill(l.enabled)}</td>
-      <td><div class="row-actions">
-        <button class="icon-btn" data-edit="${l.id}">Edit</button>
-        <button class="icon-btn danger" data-del="${l.id}">Delete</button>
-      </div></td>
-    </tr>`).join("") || emptyRow(6);
-  $("licRows").querySelectorAll("[data-edit]").forEach((b) =>
-    b.onclick = () => editLicense(licenses.find((x) => x.id === b.dataset.edit)));
-  $("licRows").querySelectorAll("[data-del]").forEach((b) =>
-    b.onclick = async () => { if (confirm("Delete this license?")) { await call("licenses.delete", { id: b.dataset.del }); loadLicenses(); } });
-}
-$("addLicBtn").onclick = () => editLicense(null);
-
-function editLicense(l) {
-  const checks = products.map((p) => `<label><input type="checkbox" value="${p.id}"
-    ${l?.product_ids?.includes(p.id) ? "checked" : ""}> ${esc(p.name)}</label>`).join("");
-  modal(l ? "Edit license" : "New license key", `
-    <div class="field"><label>License key</label>
-      <input id="m_key" value="${esc(l?.key ?? randKey())}" ${l ? "readonly" : ""}></div>
-    <div class="field"><label>Customer name</label><input id="m_cust" value="${esc(l?.customer_name ?? "")}"></div>
-    <div class="field"><label>Max devices (flash limit)</label>
-      <input id="m_max" type="number" min="1" value="${(l && l.max_flashes < UNLIMITED) ? l.max_flashes : (l ? "" : 1)}" ${l?.max_flashes >= UNLIMITED ? "disabled" : ""}></div>
-    <div class="field"><label class="check"><input type="checkbox" id="m_unlim" ${l?.max_flashes >= UNLIMITED ? "checked" : ""}
-      onchange="document.getElementById('m_max').disabled=this.checked"> Unlimited devices (no limit)</label></div>
-    <div class="field"><label class="check"><input type="checkbox" id="m_en" ${l?.enabled !== false ? "checked" : ""}> Enabled</label></div>
-    <div class="field"><label>Allowed products</label><div class="checklist" id="m_prods">${checks || '<span class="hint">no products yet</span>'}</div></div>
-  `, async () => {
-    const key = $("m_key").value.trim();
-    const max = $("m_unlim").checked ? UNLIMITED : (parseInt($("m_max").value, 10) || 1);
-    const cust = $("m_cust").value.trim();
-    const en = $("m_en").checked;
-    const pids = [...$("m_prods").querySelectorAll("input:checked")].map((c) => c.value);
-    if (!key) throw new Error("Key required.");
-    let id = l?.id;
-    if (l) await call("licenses.update", { id, customer_name: cust, max_flashes: max, enabled: en });
-    else id = (await call("licenses.create", { key, customer_name: cust, max_flashes: max, enabled: en })).license.id;
-    await call("licenses.setProducts", { id, product_ids: pids });
-    loadLicenses();
-  });
+  el.flashBtn.disabled = false;
 }
 
-// ---- Requests ----
-$("refreshReqs").onclick = loadRequests;
-async function loadRequests() {
-  const { requests } = await call("requests.list");
-  const pending = requests.filter((r) => r.status === "pending");
-  updateReqBadge(pending.length);
-  $("reqRows").innerHTML = requests.map((r) => `
-    <tr>
-      <td>${new Date(r.created_at).toLocaleString()}</td>
-      <td>${esc(r.customer_name ?? "")}</td>
-      <td><code>${esc(r.license_key ?? "")}</code></td>
-      <td>${esc(r.product_name)}</td>
-      <td><b>${r.requested_count}</b></td>
-      <td>${r.used}/${fmtMax(r.current_max)}</td>
-      <td>${reqStatus(r.status)}</td>
-      <td><div class="row-actions">${r.status === "pending"
-        ? `<button class="icon-btn" data-appr="${r.id}">Approve</button>
-           <button class="icon-btn danger" data-rej="${r.id}">Reject</button>`
-        : ""}</div></td>
-    </tr>`).join("") || emptyRow(8, "No requests yet.");
-  $("reqRows").querySelectorAll("[data-appr]").forEach((b) =>
-    b.onclick = () => approveRequest(requests.find((x) => x.id === b.dataset.appr)));
-  $("reqRows").querySelectorAll("[data-rej]").forEach((b) =>
-    b.onclick = async () => { if (confirm("Reject this request?")) { await call("requests.reject", { id: b.dataset.rej }); loadRequests(); } });
+function showSuccess(r) {
+  el.progressWrap.classList.add("hidden");
+  const line = r
+    ? `MAC ${deviceMac} · Devices used ${r.used}/${fmtMax(r.max)}` +
+      (r.counted ? "" : " (re-flash, not counted)")
+    : `MAC ${deviceMac}`;
+  el.successInfo.textContent = line;
+  el.successPanel.classList.remove("hidden");
+  el.successPanel.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function approveRequest(r) {
-  modal(`Approve request — ${esc(r.customer_name ?? r.license_key)}`, `
-    <p class="hint">Requested <b>${r.requested_count}</b> flashes for <b>${esc(r.product_name)}</b>.
-    They currently have ${r.used}/${fmtMax(r.current_max)}.</p>
-    <div class="field"><label>Flashes to add to their limit</label>
-      <input id="m_grant" type="number" min="1" value="${r.requested_count}"></div>
-    <div class="field"><label class="check"><input type="checkbox" id="m_unlim"
-      onchange="document.getElementById('m_grant').disabled=this.checked"> Grant UNLIMITED access instead</label></div>
-  `, async () => {
-    const unlimited = $("m_unlim").checked;
-    const grant = parseInt($("m_grant").value, 10);
-    if (!unlimited && (!grant || grant < 1)) throw new Error("Enter a number or tick unlimited.");
-    await call("requests.approve", { id: r.id, grant, unlimited });
-    loadRequests();
-  });
+// ---- flash another device ----
+async function flashAnother() {
+  await cleanup();
+  el.successPanel.classList.add("hidden");
+  el.progressWrap.classList.add("hidden");
+  setProgress(0);
+  status("Plug in the next board and press Connect.");
+  el.connectBtn.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function reqStatus(s) {
-  if (s === "pending") return '<span class="pill pending">pending</span>';
-  if (s === "approved") return '<span class="pill on">approved</span>';
-  return '<span class="pill off">rejected</span>';
+// ---- firmware sources ----
+async function getManualFirmware() {
+  const f = el.firmwareFile.files[0];
+  if (!f) throw new Error("Pick a .bin file first (manual mode).");
+  const buf = await f.arrayBuffer();
+  return { fileData: bufToBin(buf), address: parseHex(el.flashAddr.value) };
 }
-function updateReqBadge(n) {
-  const b = $("reqBadge");
-  b.textContent = n;
-  b.classList.toggle("hidden", n === 0);
-}
-
-// Check pending count on login so the badge shows immediately.
-async function refreshReqBadge() {
-  try { const { requests } = await call("requests.list");
-    updateReqBadge(requests.filter((r) => r.status === "pending").length); } catch (_) {}
-}
-
-// ---- Logs ----
-$("refreshLogs").onclick = loadLogs;
-async function loadLogs() {
-  const { logs } = await call("logs.list");
-  $("logRows").innerHTML = logs.map((g) => `
-    <tr>
-      <td>${new Date(g.created_at).toLocaleString()}</td>
-      <td><code>${esc(g.chip_mac ?? "")}</code></td>
-      <td>${g.status === "success" ? '<span class="pill on">success</span>' : '<span class="pill off">' + esc(g.status) + '</span>'}</td>
-      <td class="hint">${esc(g.error ?? "")}</td>
-    </tr>`).join("") || emptyRow(4, "No flashes yet.");
+async function getBackendFirmware() {
+  const productId = el.productSelect.value;
+  if (!productId) throw new Error("Select your device first.");
+  const prep = await api(FN.prepare(), { license_key: licenseKey, product_id: productId, chip_mac: deviceMac });
+  if (prep.error) throw new Error(prep.error);
+  const res = await fetch(prep.signed_url);
+  if (!res.ok) throw new Error("Could not download firmware.");
+  const buf = await res.arrayBuffer();
+  return { fileData: bufToBin(buf), address: prep.flash_address, firmwareId: prep.firmware_id, productId };
 }
 
-// ---- Modal helper ----
-let modalSaveFn = null;
-function modal(title, bodyHtml, onSave) {
-  $("modalTitle").textContent = title;
-  $("modalBody").innerHTML = bodyHtml;
-  $("modalErr").textContent = "";
-  modalSaveFn = onSave;
-  $("modal").classList.remove("hidden");
+// ---- request more ----
+async function sendRequest() {
+  if (!licenseKey) { el.reqHint.textContent = "Sign in first."; return; }
+  const productId = el.reqProduct.value, count = parseInt(el.reqCount.value, 10);
+  if (!productId || !count || count < 1) { el.reqHint.textContent = "Pick a device and a number."; return; }
+  el.reqBtn.disabled = true; el.reqHint.textContent = "Sending…";
+  try {
+    const r = await api(FN.request(), { license_key: licenseKey, product_id: productId, count });
+    el.reqHint.textContent = r.error ? r.error : "✅ Request sent! You can flash once it's approved.";
+    el.reqHint.className = "msg" + (r.error ? " err" : " ok");
+    if (!r.error) el.reqCount.value = "";
+  } catch (e) { el.reqHint.textContent = "Could not send: " + e.message; el.reqHint.className = "msg err"; }
+  finally { el.reqBtn.disabled = false; }
 }
-$("modalCancel").onclick = () => $("modal").classList.add("hidden");
-$("modalSave").onclick = async () => {
-  try { await modalSaveFn(); $("modal").classList.add("hidden"); }
-  catch (e) { $("modalErr").textContent = e.message; }
-};
 
-// ---- utils ----
-function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-function statusPill(on) { return on ? '<span class="pill on">enabled</span>' : '<span class="pill off">disabled</span>'; }
-function emptyRow(cols, msg = "Nothing yet.") { return `<tr><td colspan="${cols}" class="hint">${msg}</td></tr>`; }
-function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""); }
-function randKey() {
-  const p = () => Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `${p()}-${p()}-${p()}-${p()}`;
+// ---- helpers ----
+function setProgress(pct) {
+  el.progPct.textContent = pct + "%";
+  el.progressBar.style.width = pct + "%";
+  el.progRing.style.background = `conic-gradient(var(--accent) ${pct}%, var(--card-2) 0)`;
 }
+function updateFlashBtn() {
+  const haveTarget = el.manualMode.checked || !!el.productSelect.value;
+  el.flashBtn.disabled = !(esploader && haveTarget);
+}
+function bufToBin(buf) {
+  const b = new Uint8Array(buf); let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return s;
+}
+function parseHex(v) { const n = parseInt(v, 16); return Number.isNaN(n) ? 0 : n; }
+
+init();

@@ -14,7 +14,7 @@
       <div class="brand">
         <div class="brand-logo">⚡</div>
         <h1>Device Programmer</h1>
-        <p class="sub">Enter your access key to begin</p>
+        <p class="sub">Enter your access to begin</p>
       </div>
       <input id="userInput" class="big-input" placeholder="User ID" autocomplete="username" />
       <input id="passInput" class="big-input" type="password" placeholder="Password" autocomplete="current-password" style="margin-top:10px" />
@@ -27,11 +27,27 @@
     <p class="foot-note">Works on desktop Google Chrome or Microsoft Edge.</p>
   </div>
 
-  <!-- ============ APP ============ -->
-  <div id="appView" class="hidden">
-    <header class="cust-header">
-      <div class="hdr-left"><span class="hdr-logo">⚡</span> Device Programmer</div>
-      <div class="hdr-right">
+  <!-- ============ APP (programmer layout) ============ -->
+  <div id="appView" class="app hidden">
+    <!-- top toolbar with all controls -->
+    <header class="bar">
+      <div class="bar-brand"><span class="hdr-logo">⚡</span> <span class="bar-name">Device Programmer</span></div>
+
+      <div class="bar-controls">
+        <div class="ctl">
+          <label>Device</label>
+          <select id="productSelect" class="bar-select"></select>
+        </div>
+        <div class="ctl">
+          <label>Port</label>
+          <div class="port-controls">
+            <button id="connectBtn" class="bar-btn">🔌 Connect</button>
+            <button id="disconnectBtn" class="bar-btn ghost hidden">Change</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bar-right">
         <span class="usage-chip" id="usageChip">—</span>
         <button class="gear" id="menuBtn" title="Account">⚙</button>
       </div>
@@ -47,87 +63,46 @@
       <button class="btn ghost block" id="changeKeyBtn">Switch account</button>
       <button class="btn ghost block" id="logoutBtn">Log out</button>
       <hr />
-      <label class="mini-toggle">
-        <input type="checkbox" id="manualMode" /> Manual mode (my own bench)
-      </label>
+      <h3>Need more flashes?</h3>
+      <select id="reqProduct" class="bar-select" style="width:100%"></select>
+      <input type="number" id="reqCount" min="1" placeholder="How many?" style="width:100%;margin-top:8px" />
+      <button id="reqBtn" class="btn ghost block">Send request</button>
+      <p class="msg" id="reqHint"></p>
+      <hr />
+      <label class="mini-toggle"><input type="checkbox" id="manualMode" /> Manual mode (my own bench)</label>
       <div id="manualBox" class="manual-box hidden">
         <label>Firmware .bin<input type="file" id="firmwareFile" accept=".bin" /></label>
         <label>Flash address<input type="text" id="flashAddr" value="0x0" /></label>
       </div>
     </aside>
 
-    <main class="cust-main">
+    <!-- main: terminal + flash dock -->
+    <main class="term-main">
       <div id="unsupported" class="banner warn hidden">
         ⚠️ This browser isn't supported. Please use desktop <b>Chrome</b> or <b>Edge</b>.
       </div>
 
-      <!-- STEP 1 -->
-      <section class="step-card">
-        <div class="step-no">1</div>
-        <div class="step-body">
-          <h2>Select your device</h2>
-          <select id="productSelect" class="big-select"></select>
-          <p class="hint" id="productHint"></p>
+      <div class="term-wrap">
+        <div class="term-head">
+          <span class="dot"></span> Console
+          <span id="deviceInfo" class="term-dev hidden">
+            <b id="chipName">—</b> · MAC <b id="macAddr">—</b>
+          </span>
+          <span class="term-hint" id="productHint"></span>
+          <button class="term-clear" id="clearLog">clear</button>
         </div>
-      </section>
+        <pre id="log" class="terminal"></pre>
+      </div>
 
-      <!-- STEP 2 -->
-      <section class="step-card">
-        <div class="step-no">2</div>
-        <div class="step-body">
-          <h2>Connect the USB port <span class="once">(once)</span></h2>
-          <p class="hint">Pick your COM port one time. It stays fixed — then just swap PCBs and press Flash for each one.</p>
-          <button id="connectBtn" class="btn-lg">🔌 Connect device</button>
-          <div id="deviceInfo" class="dev-chip hidden">
-            <div><span>Chip</span><b id="chipName">—</b></div>
-            <div><span>Last MAC</span><b id="macAddr">—</b></div>
-            <button id="disconnectBtn" class="tiny">Change port</button>
-          </div>
+      <div class="flash-dock">
+        <div id="progressWrap" class="dock-prog hidden">
+          <div class="prog-bar"><div id="progressBar"></div></div>
+          <span id="progPct" class="dock-pct">0%</span>
         </div>
-      </section>
-
-      <!-- STEP 3 -->
-      <section class="step-card">
-        <div class="step-no">3</div>
-        <div class="step-body">
-          <h2>Flash</h2>
-          <button id="flashBtn" class="btn-lg primary" disabled>⚡ Flash device</button>
-          <div id="progressWrap" class="prog hidden">
-            <div class="prog-ring" id="progRing"><span id="progPct">0%</span></div>
-            <div class="prog-meta">
-              <div class="prog-bar"><div id="progressBar"></div></div>
-              <div class="fstatus" id="flashStatus">Flashing… do not unplug.</div>
-            </div>
-          </div>
-          <div id="flashStatusIdle" class="fstatus"></div>
-        </div>
-      </section>
-
-      <!-- SUCCESS -->
-      <section id="successPanel" class="success-panel hidden">
-        <div class="tick">✓</div>
-        <h2>Flash successful!</h2>
-        <p id="successInfo" class="muted"></p>
-        <button id="flashAnotherBtn" class="btn-lg primary block">Swap PCB & flash next →</button>
-      </section>
-
-      <!-- REQUEST MORE -->
-      <details class="foldbox">
-        <summary>Need more flashes?</summary>
-        <div class="fold-inner">
-          <p class="hint">Send a request to the admin. You can flash once it's approved.</p>
-          <select id="reqProduct" class="big-select"></select>
-          <input type="number" id="reqCount" min="1" placeholder="How many flashes do you need?" />
-          <button id="reqBtn" class="btn">Send request</button>
-          <p class="msg" id="reqHint"></p>
-        </div>
-      </details>
-
-      <!-- LOG -->
-      <details class="foldbox">
-        <summary>Technical log</summary>
-        <div class="fold-inner"><pre id="log" class="log"></pre></div>
-      </details>
+        <button id="flashBtn" class="btn-lg primary flash-main" disabled>⚡ Flash device</button>
+        <div class="dock-status" id="flashStatus"></div>
+        <div class="dock-status" id="flashStatusIdle"></div>
+      </div>
     </main>
   </div>
 

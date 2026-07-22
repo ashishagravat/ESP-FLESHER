@@ -335,3 +335,78 @@ body.cust {
 
 .once { font-size: 12px; color: var(--muted); font-weight: 400; }
 .btn-lg.ok-btn { border-color: var(--green); color: var(--green); background: rgba(46,160,67,.08); }
+
+/* ============================================================
+   Programmer layout — toolbar + terminal
+   ============================================================ */
+.app { display: flex; flex-direction: column; height: 100vh; }
+
+.bar {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+.bar-brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.bar-name { white-space: nowrap; }
+@media (max-width: 640px) { .bar-name { display: none; } }
+
+.bar-controls { display: flex; gap: 16px; flex: 1; flex-wrap: wrap; }
+.ctl { display: flex; flex-direction: column; gap: 3px; }
+.ctl > label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.bar-select {
+  padding: 8px 12px; min-width: 200px; font-size: 14px;
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text);
+}
+.port-controls { display: flex; gap: 6px; }
+.bar-btn {
+  padding: 8px 14px; font-size: 14px; cursor: pointer;
+  background: var(--card-2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); white-space: nowrap;
+}
+.bar-btn:hover { border-color: var(--accent); }
+.bar-btn.ghost { background: transparent; color: var(--muted); }
+.bar-btn.ok-btn { border-color: var(--green); color: var(--green); background: rgba(46,160,67,.08); }
+.bar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+
+/* terminal area */
+.term-main {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  gap: 14px; padding: 16px 18px 18px; max-width: 1100px; width: 100%; margin: 0 auto;
+}
+.term-wrap {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: #0a0e13;
+}
+.term-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; background: var(--card); border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--muted);
+}
+.term-head .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+.term-dev { color: var(--text); }
+.term-dev b { color: var(--accent); font-weight: 600; }
+.term-hint { color: var(--muted); }
+.term-clear {
+  margin-left: auto; background: transparent; border: 1px solid var(--border);
+  color: var(--muted); border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.term-clear:hover { color: var(--text); border-color: var(--accent); }
+.terminal {
+  flex: 1; min-height: 0; margin: 0; padding: 14px 16px; overflow: auto;
+  font-family: "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px; line-height: 1.55; color: #9fe0b0;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* flash dock */
+.flash-dock { flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.dock-prog { display: flex; align-items: center; gap: 12px; }
+.dock-prog .prog-bar { flex: 1; height: 10px; background: var(--card-2); border-radius: 999px; overflow: hidden; }
+.dock-prog .prog-bar > div { height: 100%; width: 0%; background: var(--accent); transition: width .15s; }
+.dock-pct { font-variant-numeric: tabular-nums; font-weight: 700; min-width: 48px; text-align: right; }
+.flash-main { font-size: 18px; padding: 18px; }
+.dock-status { font-size: 14px; color: var(--muted); text-align: center; min-height: 18px; }
+.dock-status.ok { color: var(--green); }
+.dock-status.err { color: var(--red); }

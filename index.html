@@ -75,12 +75,13 @@
       <section class="step-card">
         <div class="step-no">2</div>
         <div class="step-body">
-          <h2>Connect the board</h2>
+          <h2>Connect the USB port <span class="once">(once)</span></h2>
+          <p class="hint">Pick your COM port one time. It stays fixed — then just swap PCBs and press Flash for each one.</p>
           <button id="connectBtn" class="btn-lg">🔌 Connect device</button>
           <div id="deviceInfo" class="dev-chip hidden">
             <div><span>Chip</span><b id="chipName">—</b></div>
-            <div><span>MAC address</span><b id="macAddr">—</b></div>
-            <button id="disconnectBtn" class="tiny">Disconnect</button>
+            <div><span>Last MAC</span><b id="macAddr">—</b></div>
+            <button id="disconnectBtn" class="tiny">Change port</button>
           </div>
         </div>
       </section>
@@ -107,7 +108,7 @@
         <div class="tick">✓</div>
         <h2>Flash successful!</h2>
         <p id="successInfo" class="muted"></p>
-        <button id="flashAnotherBtn" class="btn-lg primary block">Flash another device →</button>
+        <button id="flashAnotherBtn" class="btn-lg primary block">Swap PCB & flash next →</button>
       </section>
 
       <!-- REQUEST MORE -->

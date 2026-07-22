@@ -1,0 +1,57 @@
+.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.login-card { width: 320px; text-align: center; }
+.login-card input { margin-bottom: 12px; }
+.login-card .btn { width: 100%; }
+
+.wrap.wide { max-width: 1000px; }
+
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab {
+  padding: 8px 14px; background: transparent; border: none;
+  color: var(--muted); cursor: pointer; border-radius: 8px; font-size: 14px;
+}
+.tab:hover { background: var(--card-2); color: var(--text); }
+.tab.active { background: var(--accent-2); color: #fff; }
+.topbar { gap: 16px; }
+.topbar h1 { white-space: nowrap; }
+
+.pane-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.pane-head h2 { margin: 0; font-size: 18px; }
+.pane-head .btn { margin-left: auto; }
+.pane-head select { width: auto; min-width: 180px; margin: 0; }
+
+.tbl { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+.tbl th, .tbl td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.tbl th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl code { background: var(--card-2); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+.pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.pill.on { background: #133a1e; color: var(--green); }
+.pill.off { background: #3a1416; color: var(--red); }
+.pill.pending { background: #3a2e13; color: #e3b341; }
+
+.req-badge {
+  display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px;
+  background: var(--red); color: #fff; border-radius: 999px; font-size: 11px; line-height: 18px;
+}
+
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.icon-btn {
+  background: var(--card-2); border: 1px solid var(--border); color: var(--muted);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--accent); }
+.icon-btn.danger:hover { color: var(--red); border-color: var(--red); }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.modal-box { width: 420px; max-width: 92vw; }
+.modal-box h3 { margin: 0 0 16px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.field { margin-bottom: 12px; }
+.field label { margin: 0 0 4px; }
+.field .check { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.field .check input { width: auto; margin: 0; }
+.checklist { max-height: 160px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.checklist label { display: flex; align-items: center; gap: 8px; color: var(--text); margin: 4px 0; }
+.checklist input { width: auto; margin: 0; }

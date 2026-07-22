@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ESP Wireless Programmer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>ESP Wireless Programmer</h1>
+    <span class="badge" id="modeBadge">Customer mode</span>
+  </header>
+
+  <main class="wrap">
+    <!-- Browser support warning -->
+    <div id="unsupported" class="card warn hidden">
+      <strong>Your browser is not supported.</strong>
+      <p>This tool needs the Web Serial API. Please use <b>Google Chrome</b> or
+      <b>Microsoft Edge</b> on a desktop/laptop computer. Phones, Safari and Firefox
+      are not supported.</p>
+    </div>
+
+    <!-- Step 0: license -->
+    <section class="card" id="licenseCard">
+      <h2>Enter your license key</h2>
+      <input type="text" id="licenseKey" placeholder="XXXX-XXXX-XXXX-XXXX" />
+      <button id="licenseBtn" class="btn" style="margin-top:10px">Load my products</button>
+      <p class="hint" id="licenseHint"></p>
+    </section>
+
+    <!-- Step 1: pick product -->
+    <section class="card">
+      <h2>1. Select your product</h2>
+      <select id="productSelect">
+        <option value="">— choose your product —</option>
+      </select>
+      <p class="hint" id="productHint"></p>
+
+      <label class="manual-toggle">
+        <input type="checkbox" id="manualMode" />
+        Manual / bench mode (pick any firmware file myself)
+      </label>
+      <div id="manualBox" class="manual-box hidden">
+        <label>Firmware .bin file
+          <input type="file" id="firmwareFile" accept=".bin" />
+        </label>
+        <label>Flash address (hex)
+          <input type="text" id="flashAddr" value="0x0" />
+        </label>
+      </div>
+    </section>
+
+    <!-- Step 2: connect -->
+    <section class="card">
+      <h2>2. Connect your device</h2>
+      <button id="connectBtn" class="btn">Connect device</button>
+      <button id="disconnectBtn" class="btn ghost hidden">Disconnect</button>
+      <div id="deviceInfo" class="device-info hidden">
+        <div><span>Chip:</span> <b id="chipName">—</b></div>
+        <div><span>MAC address:</span> <b id="macAddr">—</b></div>
+      </div>
+    </section>
+
+    <!-- Step 3: flash -->
+    <section class="card">
+      <h2>3. Flash</h2>
+      <button id="flashBtn" class="btn primary" disabled>Flash device</button>
+      <div class="progress hidden" id="progressWrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div id="flashStatus" class="status"></div>
+    </section>
+
+    <!-- Request more flashes -->
+    <section class="card hidden" id="requestCard">
+      <h2>Need more flashes?</h2>
+      <p class="hint">Send a request to the admin. You can flash once they approve it.</p>
+      <label>Product
+        <select id="reqProduct"></select>
+      </label>
+      <label>How many flashes do you need?
+        <input type="number" id="reqCount" min="1" placeholder="e.g. 50" />
+      </label>
+      <button id="reqBtn" class="btn" style="margin-top:10px">Send request</button>
+      <p class="hint" id="reqHint"></p>
+    </section>
+
+    <!-- Log -->
+    <section class="card">
+      <h2>Log</h2>
+      <pre id="log" class="log"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

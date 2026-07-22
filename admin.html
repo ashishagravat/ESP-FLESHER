@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · ESP Programmer</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <!-- Login -->
+  <div id="loginView" class="login">
+    <div class="card login-card">
+      <h2>Admin login</h2>
+      <input type="password" id="adminPass" placeholder="Admin password" />
+      <button id="loginBtn" class="btn primary">Log in</button>
+      <p class="hint" id="loginHint"></p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashView" class="hidden">
+    <header class="topbar">
+      <h1>ESP Programmer — Admin</h1>
+      <nav class="tabs">
+        <button class="tab active" data-tab="products">Products</button>
+        <button class="tab" data-tab="firmware">Firmware</button>
+        <button class="tab" data-tab="licenses">Licenses</button>
+        <button class="tab" data-tab="requests">Requests <span id="reqBadge" class="req-badge hidden">0</span></button>
+        <button class="tab" data-tab="logs">Logs</button>
+      </nav>
+      <button id="logoutBtn" class="btn ghost">Log out</button>
+    </header>
+
+    <main class="wrap wide">
+      <!-- PRODUCTS -->
+      <section id="tab-products" class="tabpane">
+        <div class="pane-head">
+          <h2>Products</h2>
+          <button class="btn primary" id="addProductBtn">+ Add product</button>
+        </div>
+        <table class="tbl"><thead><tr>
+          <th>Name</th><th>Chip</th><th>Current firmware</th><th>Status</th><th></th>
+        </tr></thead><tbody id="productRows"></tbody></table>
+      </section>
+
+      <!-- FIRMWARE -->
+      <section id="tab-firmware" class="tabpane hidden">
+        <div class="pane-head">
+          <h2>Firmware</h2>
+          <select id="fwProduct"></select>
+          <button class="btn primary" id="addFwBtn">+ Upload firmware</button>
+        </div>
+        <table class="tbl"><thead><tr>
+          <th>Version</th><th>Flash addr</th><th>Path</th><th>Current</th><th></th>
+        </tr></thead><tbody id="fwRows"></tbody></table>
+      </section>
+
+      <!-- LICENSES -->
+      <section id="tab-licenses" class="tabpane hidden">
+        <div class="pane-head">
+          <h2>Licenses</h2>
+          <button class="btn primary" id="addLicBtn">+ New license key</button>
+        </div>
+        <table class="tbl"><thead><tr>
+          <th>Key</th><th>Customer</th><th>Devices</th><th>Products</th><th>Status</th><th></th>
+        </tr></thead><tbody id="licRows"></tbody></table>
+      </section>
+
+      <!-- REQUESTS -->
+      <section id="tab-requests" class="tabpane hidden">
+        <div class="pane-head"><h2>Flash requests</h2>
+          <button class="btn" id="refreshReqs">Refresh</button></div>
+        <table class="tbl"><thead><tr>
+          <th>When</th><th>Customer</th><th>Key</th><th>Product</th><th>Requested</th><th>Current</th><th>Status</th><th></th>
+        </tr></thead><tbody id="reqRows"></tbody></table>
+      </section>
+
+      <!-- LOGS -->
+      <section id="tab-logs" class="tabpane hidden">
+        <div class="pane-head"><h2>Flash logs</h2>
+          <button class="btn" id="refreshLogs">Refresh</button></div>
+        <table class="tbl"><thead><tr>
+          <th>When</th><th>MAC</th><th>Status</th><th>Error</th>
+        </tr></thead><tbody id="logRows"></tbody></table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box card">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modalCancel">Cancel</button>
+        <button class="btn primary" id="modalSave">Save</button>
+      </div>
+      <p class="hint err" id="modalErr"></p>
+    </div>
+  </div>
+
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

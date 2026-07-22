@@ -27,7 +27,7 @@ const el = {};
 ].forEach((id) => (el[id] = $(id)));
 
 // ---- state ----
-let transport = null, esploader = null;
+let grantedPort = null;                 // the COM port, picked ONCE and reused
 let deviceMac = null, deviceChip = null;
 let licenseKey = null, products = [], usage = { used: 0, max: 0, name: "" };
 
@@ -67,7 +67,7 @@ function init() {
   el.manualMode.addEventListener("change", onManualToggle);
   el.productSelect.addEventListener("change", onProductChange);
   el.connectBtn.addEventListener("click", connect);
-  el.disconnectBtn.addEventListener("click", () => cleanup().then(() => status("Disconnected.")));
+  el.disconnectBtn.addEventListener("click", forgetPort);
   el.flashBtn.addEventListener("click", flash);
   el.flashAnotherBtn.addEventListener("click", flashAnother);
   el.reqBtn.addEventListener("click", sendRequest);
@@ -132,7 +132,7 @@ function refreshUsageUI() {
 function logout() {
   localStorage.removeItem(KEY_STORE); sessionStorage.removeItem(KEY_STORE);
   licenseKey = null;
-  cleanup();
+  forgetPort();
   toggleDrawer(false);
   el.appView.classList.add("hidden");
   el.loginView.classList.remove("hidden");
@@ -156,56 +156,64 @@ function onManualToggle() {
   updateFlashBtn();
 }
 
-// ---- connect (reads MAC) ----
+// ---- select the COM port ONCE (reused for every PCB) ----
 async function connect() {
   try {
-    status("Requesting serial port…");
-    const port = await navigator.serial.requestPort();
-    transport = new Transport(port, true);
-    esploader = new ESPLoader({ transport, baudrate: 921600, terminal: espTerminal });
-    status("Connecting to chip…");
-    deviceChip = await esploader.main();
-    deviceMac = await esploader.chip.readMac(esploader);
-    el.chipName.textContent = deviceChip;
-    el.macAddr.textContent = deviceMac;
-    el.deviceInfo.classList.remove("hidden");
-    el.connectBtn.classList.add("hidden");
-    status("Connected. Ready to flash.", "ok");
+    grantedPort = await navigator.serial.requestPort();
+    el.connectBtn.textContent = "✓ Port ready — click to change port";
+    el.connectBtn.classList.add("ok-btn");
+    status("Port ready. Load a PCB and press Flash. Then swap PCBs and press Flash again.", "ok");
     updateFlashBtn();
   } catch (err) {
-    status("Connect failed: " + err.message, "err");
-    logLine("ERROR: " + err.message);
-    await cleanup();
+    status("No port selected.", "err");
   }
 }
 
-async function cleanup() {
-  try { if (transport) await transport.disconnect(); } catch (_) {}
-  transport = null; esploader = null; deviceMac = null; deviceChip = null;
+// forget the chosen port (so a different port can be picked)
+function forgetPort() {
+  grantedPort = null;
+  el.connectBtn.textContent = "🔌 Connect device";
+  el.connectBtn.classList.remove("ok-btn");
   el.deviceInfo.classList.add("hidden");
-  el.connectBtn.classList.remove("hidden");
+  status("Port disconnected. Press Connect to choose a port.");
   updateFlashBtn();
 }
 
-// ---- flash ----
+// ---- flash (repeatable: one press = one PCB, same port) ----
 async function flash() {
-  if (!esploader) { status("Connect a device first.", "err"); return; }
-  let fileData, address, firmwareId = null, productId = null;
-  try {
-    if (el.manualMode.checked) ({ fileData, address } = await getManualFirmware());
-    else ({ fileData, address, firmwareId, productId } = await getBackendFirmware());
-  } catch (err) { status(err.message, "err"); return; }
+  if (!grantedPort) { status("Press Connect and choose the COM port first.", "err"); return; }
+  const productId = el.productSelect.value;
+  if (!el.manualMode.checked && !productId) { status("Select your device first.", "err"); return; }
 
   el.flashBtn.disabled = true;
   el.successPanel.classList.add("hidden");
   el.progressWrap.classList.remove("hidden");
   setProgress(0);
-  el.flashStatus.textContent = "Flashing… do not unplug.";
+  el.flashStatus.textContent = "Connecting to board…";
   el.flashStatus.className = "fstatus";
   status("");
 
-  let ok = false, errMsg = null;
+  // fresh loader on the SAME port for each board
+  const transport = new Transport(grantedPort, true);
+  const esploader = new ESPLoader({ transport, baudrate: 921600, terminal: espTerminal });
+  let ok = false, errMsg = null, firmwareId = null;
+
   try {
+    deviceChip = await esploader.main();
+    deviceMac = await esploader.chip.readMac(esploader);
+    el.chipName.textContent = deviceChip;
+    el.macAddr.textContent = deviceMac;
+    el.deviceInfo.classList.remove("hidden");
+
+    let fileData, address;
+    if (el.manualMode.checked) {
+      ({ fileData, address } = await getManualFirmware());
+    } else {
+      const fw = await getBackendFirmware(productId);   // uses deviceMac
+      fileData = fw.fileData; address = fw.address; firmwareId = fw.firmwareId;
+    }
+
+    el.flashStatus.textContent = "Flashing… do not unplug.";
     await esploader.writeFlash({
       fileArray: [{ data: fileData, address }],
       flashSize: "keep", flashMode: "keep", flashFreq: "keep",
@@ -218,6 +226,8 @@ async function flash() {
     errMsg = err.message; logLine("ERROR: " + err.message);
     el.flashStatus.textContent = "Flash failed: " + errMsg;
     el.flashStatus.className = "fstatus err";
+  } finally {
+    try { await transport.disconnect(); } catch (_) {}  // release the port for the next PCB
   }
 
   // report + count
@@ -248,14 +258,13 @@ function showSuccess(r) {
   el.successPanel.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-// ---- flash another device ----
-async function flashAnother() {
-  await cleanup();
+// ---- ready for next PCB (port stays the same) ----
+function flashAnother() {
   el.successPanel.classList.add("hidden");
   el.progressWrap.classList.add("hidden");
   setProgress(0);
-  status("Plug in the next board and press Connect.");
-  el.connectBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+  status("Swap in the next PCB and press Flash.", "ok");
+  el.flashBtn.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 // ---- firmware sources ----
@@ -265,15 +274,13 @@ async function getManualFirmware() {
   const buf = await f.arrayBuffer();
   return { fileData: bufToBin(buf), address: parseHex(el.flashAddr.value) };
 }
-async function getBackendFirmware() {
-  const productId = el.productSelect.value;
-  if (!productId) throw new Error("Select your device first.");
+async function getBackendFirmware(productId) {
   const prep = await api(FN.prepare(), { license_key: licenseKey, product_id: productId, chip_mac: deviceMac });
   if (prep.error) throw new Error(prep.error);
   const res = await fetch(prep.signed_url);
   if (!res.ok) throw new Error("Could not download firmware.");
   const buf = await res.arrayBuffer();
-  return { fileData: bufToBin(buf), address: prep.flash_address, firmwareId: prep.firmware_id, productId };
+  return { fileData: bufToBin(buf), address: prep.flash_address, firmwareId: prep.firmware_id };
 }
 
 // ---- request more ----
@@ -299,7 +306,7 @@ function setProgress(pct) {
 }
 function updateFlashBtn() {
   const haveTarget = el.manualMode.checked || !!el.productSelect.value;
-  el.flashBtn.disabled = !(esploader && haveTarget);
+  el.flashBtn.disabled = !(grantedPort && haveTarget);
 }
 function bufToBin(buf) {
   const b = new Uint8Array(buf); let s = "";
